@@ -1,0 +1,35 @@
+[package]
+name = "depctl"
+version = "1.4.5"
+edition = "2021"
+authors = ["0x1306a94"]
+description = "A Rust implementation of dependency management tool similar to depsync"
+license = "MIT"
+
+[[bin]]
+name = "depctl"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0.100"
+bzip2 = "0.6.1"
+clap = { version = "4.5.54", features = ["derive"] }
+env_logger = "0.11.8"
+flate2 = "1.1.8"
+indicatif = "0.18.3"
+log = "0.4.29"
+pathdiff = "0.2.3"
+reqwest = { version = "0.13.1", features = ["blocking", "stream"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+sha1 = "0.10.6"
+tar = "0.4.44"
+thiserror = "2.0.18"
+walkdir = "2.5.0"
+zip = "7.2.0"
+
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
