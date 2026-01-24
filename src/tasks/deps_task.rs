@@ -4,6 +4,67 @@ use crate::config::{self, UrlReplace};
 use crate::tasks::{RepoTask, FileTask, SubRepoTask, ActionTask, LinkFileTask, CopyFileTask, TaskRunner, Task};
 use crate::utils;
 
+// 递归处理子仓库 DEPS 文件的任务
+// 在执行时检查 DEPS 文件是否存在，这样可以处理仓库被克隆后才出现 DEPS 文件的情况
+struct RecursiveDepsTask {
+    deps_file: PathBuf,
+    version: String,
+    platform: String,
+    non_recursive: bool,
+    url_replace_list: Option<Vec<UrlReplace>>,
+    force_linkfiles: bool,
+    force_copyfiles: bool,
+    post_sync_stack: Option<std::sync::Arc<std::sync::Mutex<Vec<Box<dyn Task>>>>>,
+}
+
+impl RecursiveDepsTask {
+    fn new(
+        deps_file: PathBuf,
+        _repo_dir: PathBuf,
+        version: String,
+        platform: String,
+        non_recursive: bool,
+        url_replace_list: Option<Vec<UrlReplace>>,
+        force_linkfiles: bool,
+        force_copyfiles: bool,
+        post_sync_stack: Option<std::sync::Arc<std::sync::Mutex<Vec<Box<dyn Task>>>>>,
+    ) -> Self {
+        Self {
+            deps_file,
+            version,
+            platform,
+            non_recursive,
+            url_replace_list,
+            force_linkfiles,
+            force_copyfiles,
+            post_sync_stack,
+        }
+    }
+}
+
+impl Task for RecursiveDepsTask {
+    fn run(&self) -> Result<bool> {
+        // 在执行时检查 DEPS 文件是否存在
+        // 这样可以处理仓库被克隆后才出现 DEPS 文件的情况
+        if self.deps_file.exists() {
+            let task = DepsTask::new(
+                self.deps_file.clone(),
+                self.version.clone(),
+                self.platform.clone(),
+                self.non_recursive,
+                self.url_replace_list.clone(),
+                self.force_linkfiles,
+                self.force_copyfiles,
+                self.post_sync_stack.clone(),
+            );
+            task.run()?;
+            Ok(true)
+        } else {
+            Ok(false) // DEPS 文件不存在，跳过
+        }
+    }
+}
+
 pub struct DepsTask {
     config_file: PathBuf,
     version: String,
@@ -75,24 +136,37 @@ impl Task for DepsTask {
                 tasks.push(Box::new(RepoTask::new(item.clone())));
             }
             
+            // 处理 submodules 和 LFS（仅在仓库需要更新或存在未完成标记时）
             if repo_dirty || unfinish_file_in_git.exists() || unfinish_file_in_root.exists() {
                 tasks.push(Box::new(SubRepoTask::new(item.dir.clone())));
+            }
+            
+            // 递归处理子仓库的 DEPS 文件（无论仓库是否需要更新，都应该检查）
+            // 注意：这里不检查文件是否存在，因为仓库可能还没有被克隆
+            // 我们会在执行时检查，或者在 RepoTask 执行后再检查
+            if !self.non_recursive {
+                let deps_file = item.dir.join("DEPS");
+                let item_dir = item.dir.clone();
+                let version = self.version.clone();
+                let platform = self.platform.clone();
+                let non_recursive = self.non_recursive;
+                let url_replace_list = self.url_replace_list.clone();
+                let force_linkfiles = self.force_linkfiles;
+                let force_copyfiles = self.force_copyfiles;
+                let post_sync_stack = self.post_sync_stack.clone();
                 
-                if !self.non_recursive {
-                    let deps_file = item.dir.join("DEPS");
-                    if deps_file.exists() {
-                        tasks.push(Box::new(DepsTask::new(
-                            deps_file,
-                            self.version.clone(),
-                            self.platform.clone(),
-                            self.non_recursive,
-                            self.url_replace_list.clone(),
-                            self.force_linkfiles,
-                            self.force_copyfiles,
-                            self.post_sync_stack.clone(),
-                        )));
-                    }
-                }
+                // 创建一个任务，在执行时检查 DEPS 文件是否存在
+                tasks.push(Box::new(RecursiveDepsTask::new(
+                    deps_file,
+                    item_dir,
+                    version,
+                    platform,
+                    non_recursive,
+                    url_replace_list,
+                    force_linkfiles,
+                    force_copyfiles,
+                    post_sync_stack,
+                )));
             }
         }
         

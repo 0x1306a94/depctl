@@ -27,7 +27,7 @@
   "actions": {
     "common": [
       {
-        "command": "depsync --clean",
+        "command": "depctl --clean",
         "dir": "third_party"
       }
     ]
