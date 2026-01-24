@@ -12,6 +12,15 @@
       }
     ]
   },
+  "files": {
+    "common": [
+      {
+        "url": "https://github.com/0x1306a94/wcdb-spm-prebuilt/releases/download/storage.v2.1.15/WCDBSwift.xcframework.zip",
+        "dir": "third_party/WCDBSwift",
+        "unzip": true
+      }
+    ]
+  },
   "linkfiles": {
     "common": [
       {
@@ -21,6 +30,14 @@
       {
         "src": "third_party/depsync/third_party/tgfx",
         "dest": "reference/tgfx"
+      }
+    ]
+  },
+  "copyfiles": {
+    "common": [
+      {
+        "src": "third_party/WCDBSwift/WCDBSwift.xcframework",
+        "dest": "reference/WCDBSwift/WCDBSwift.xcframework"
       }
     ]
   },
