@@ -252,6 +252,7 @@ fn parse_files(
         url = apply_url_replace(&url, url_replace_list);
         let dir_str = format_string(&item.dir, vars);
         let dir = project_path.join(dir_str);
+        let dir_canonicalized = dir.canonicalize().unwrap_or(dir.clone());
         let hash = utils::get_hash(&url);
         
         let url_without_query: String = url.split('?').next().unwrap_or(&url).to_string();
@@ -260,7 +261,8 @@ fn parse_files(
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("unknown");
-        let hash_file = dir.join(format!(".{}.sha1", file_name));
+        // hash_file 应该基于 canonicalized 的 dir，确保路径一致
+        let hash_file = dir_canonicalized.join(format!(".{}.sha1", file_name));
         
         let unzip = item.unzip;
         
@@ -270,7 +272,7 @@ fn parse_files(
         
         result.push(ParsedFileItem {
             url,
-            dir: dir.canonicalize().unwrap_or(dir),
+            dir: dir_canonicalized,
             hash,
             hash_file,
             unzip,

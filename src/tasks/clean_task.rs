@@ -53,23 +53,38 @@ impl CleanTask {
                 .unwrap_or("");
             
             if file_name.starts_with('.') && file_name.ends_with(".sha1") {
-                if !sha1_files.contains(&file_path.to_path_buf()) {
+                // 检查 hash_file 路径是否匹配（考虑 canonicalize 后的路径）
+                let file_path_canonicalized = file_path.canonicalize().unwrap_or(file_path.to_path_buf());
+                let is_in_sha1_files = sha1_files.iter().any(|sf| {
+                    sf.canonicalize().unwrap_or(sf.clone()) == file_path_canonicalized
+                });
+                
+                if !is_in_sha1_files {
                     let name = &file_name[1..file_name.len() - 5];
                     let dir_name = file_path.parent().unwrap();
-                    let mut deps_file = dir_name.join(name);
+                    let deps_file = dir_name.join(name);
                     
-                    if !deps_file.exists() {
-                        if name.to_lowercase().ends_with(".zip") {
-                            let name_without_ext = &name[..name.len() - 4];
-                            deps_file = dir_name.join(name_without_ext);
+                    // 对于 zip 文件，解压后 zip 文件会被删除，但解压后的目录可能存在
+                    // 如果解压后的目录存在，说明这是解压后的内容，不应该删除
+                    // 只有当 zip 文件本身存在时，才认为是未使用的文件
+                    if name.to_lowercase().ends_with(".zip") {
+                        // 检查 zip 文件是否存在
+                        if deps_file.exists() {
+                            // zip 文件存在，说明这是未使用的文件
+                            utils::log(&format!("【depctl】removing unused file: {}", deps_file.display()));
+                            utils::delete_path(&deps_file)?;
+                            utils::delete_path(file_path)?;
+                            utils::delete_empty_dir(dir_name);
                         }
-                    }
-                    
-                    if deps_file.exists() {
-                        utils::log(&format!("【depctl】removing unused file: {}", deps_file.display()));
-                        utils::delete_path(&deps_file)?;
-                        utils::delete_path(file_path)?;
-                        utils::delete_empty_dir(dir_name);
+                        // 如果 zip 文件不存在，但解压后的目录存在，说明这是解压后的内容，不应该删除
+                    } else {
+                        // 非 zip 文件，如果文件存在，删除
+                        if deps_file.exists() {
+                            utils::log(&format!("【depctl】removing unused file: {}", deps_file.display()));
+                            utils::delete_path(&deps_file)?;
+                            utils::delete_path(file_path)?;
+                            utils::delete_empty_dir(dir_name);
+                        }
                     }
                 }
             }
