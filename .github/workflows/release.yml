@@ -1,0 +1,147 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS universal binary (x86_64 + arm64)
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact_name: depctl-mac-universal
+            binary_name: depctl
+            build_universal: true
+          # Linux x86_64
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: depctl-linux-x86_64
+            binary_name: depctl
+            build_universal: false
+          # Windows x86_64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: depctl-windows-x86_64
+            binary_name: depctl.exe
+            build_universal: false
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust (macOS universal)
+        if: matrix.build_universal == true
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin,aarch64-apple-darwin
+
+      - name: Install Rust (other platforms)
+        if: matrix.build_universal == false
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-${{ matrix.target }}-
+
+      - name: Build for macOS x86_64 (if universal)
+        if: matrix.build_universal == true
+        run: |
+          cargo build --release --target x86_64-apple-darwin
+
+      - name: Build for macOS arm64 (if universal)
+        if: matrix.build_universal == true
+        run: |
+          cargo build --release --target aarch64-apple-darwin
+
+      - name: Create universal binary (macOS)
+        if: matrix.build_universal == true
+        run: |
+          lipo -create \
+            target/x86_64-apple-darwin/release/${{ matrix.binary_name }} \
+            target/aarch64-apple-darwin/release/${{ matrix.binary_name }} \
+            -output target/release/${{ matrix.binary_name }}
+
+      - name: Build for other platforms
+        if: matrix.build_universal == false
+        run: |
+          cargo build --release --target ${{ matrix.target }}
+
+      - name: Strip binary (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          strip target/${{ matrix.target }}/release/${{ matrix.binary_name }}
+
+      - name: Strip binary (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          strip target/release/${{ matrix.binary_name }}
+
+      - name: Create release archive (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          cd target/release
+          zip -r ../../${{ matrix.artifact_name }}.zip ${{ matrix.binary_name }}
+          cd ../..
+
+      - name: Create release archive (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          tar czf ${{ matrix.artifact_name }}.tar.gz -C target/${{ matrix.target }}/release ${{ matrix.binary_name }}
+
+      - name: Create release archive (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          Compress-Archive -Path target\${{ matrix.target }}\release\${{ matrix.binary_name }} -DestinationPath ${{ matrix.artifact_name }}.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_name }}.*
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            artifacts/depctl-mac-universal/*
+            artifacts/depctl-linux-x86_64/*
+            artifacts/depctl-windows-x86_64/*
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
