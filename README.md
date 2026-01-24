@@ -254,13 +254,21 @@ depctl --mirror 'https://github.com/->https://gitee.com/,https://gitlab.com/->ht
 - **强制模式**：使用 `--force-copyfiles` 参数可以强制重新复制，即使目标已存在
 
 **执行顺序**：
-1. 同步 repos（Git 仓库）
+1. 同步所有 repos（Git 仓库，包括递归的子项目）
 2. 处理每个 repo 的 git submodules 和 LFS
-3. 下载和解压 files（文件）
+3. 下载和解压所有 files（文件）
 4. 处理主项目的 git submodules 和 LFS（确保所有文件都已下载）
-5. 创建 linkfiles（软链接）- 在所有依赖（包括 submodules 和 LFS）同步完成后执行
-6. 创建 copyfiles（复制文件）- 在所有依赖（包括 submodules 和 LFS）同步完成后执行
-7. 执行 actions（自定义命令）
+5. **栈式执行 linkfiles 和 copyfiles**：
+   - 在同步过程中，遇到 linkfiles/copyfiles 时**入栈**（不立即执行）
+   - 在所有依赖（包括递归的子项目）都同步完成后，**出栈依次执行**
+   - 这样可以确保即使依赖链 A -> B -> C -> D，A 的 linkfiles/copyfiles 的源是 C 或 D，也能正确执行
+6. 执行 actions（自定义命令）
+
+**为什么使用栈式执行？**
+
+在依赖链 A -> B -> C -> D 的情况下，如果 A 的 linkfiles/copyfiles 的源是 C 或 D：
+- 如果立即执行：A 的 linkfiles/copyfiles 会在 C 和 D 同步完成前执行，导致源文件不存在
+- 使用栈式执行：所有 linkfiles/copyfiles 在所有同步完成后才执行，确保源文件一定存在
 
 ## 与 depsync 的兼容性
 

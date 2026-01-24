@@ -17,6 +17,10 @@
       {
         "src": "third_party/depsync",
         "dest": "reference/depsync"
+      },
+      {
+        "src": "third_party/depsync/third_party/tgfx",
+        "dest": "reference/tgfx"
       }
     ]
   },

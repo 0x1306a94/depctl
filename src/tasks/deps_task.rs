@@ -12,6 +12,7 @@ pub struct DepsTask {
     url_replace_list: Option<Vec<UrlReplace>>,
     force_linkfiles: bool,
     force_copyfiles: bool,
+    post_sync_stack: Option<std::sync::Arc<std::sync::Mutex<Vec<Box<dyn Task>>>>>,
 }
 
 impl DepsTask {
@@ -23,6 +24,7 @@ impl DepsTask {
         url_replace_list: Option<Vec<UrlReplace>>,
         force_linkfiles: bool,
         force_copyfiles: bool,
+        post_sync_stack: Option<std::sync::Arc<std::sync::Mutex<Vec<Box<dyn Task>>>>>,
     ) -> Self {
         Self {
             config_file,
@@ -32,6 +34,7 @@ impl DepsTask {
             url_replace_list,
             force_linkfiles,
             force_copyfiles,
+            post_sync_stack,
         }
     }
     
@@ -86,6 +89,7 @@ impl Task for DepsTask {
                             self.url_replace_list.clone(),
                             self.force_linkfiles,
                             self.force_copyfiles,
+                            self.post_sync_stack.clone(),
                         )));
                     }
                 }
@@ -105,14 +109,30 @@ impl Task for DepsTask {
         let project_dir = self.config_file.parent().unwrap();
         tasks.push(Box::new(SubRepoTask::new(project_dir.to_path_buf())));
         
-        // 处理 linkfiles（在所有依赖（包括 submodules 和 LFS）同步完成后创建软链接）
-        for item in &config.linkfiles {
-            tasks.push(Box::new(LinkFileTask::new(item.clone(), self.force_linkfiles)));
+        // 处理 linkfiles：入栈而不是立即执行（栈式执行，确保所有依赖都同步完成后再执行）
+        if let Some(ref stack) = self.post_sync_stack {
+            for item in &config.linkfiles {
+                let mut stack_guard = stack.lock().unwrap();
+                stack_guard.push(Box::new(LinkFileTask::new(item.clone(), self.force_linkfiles)));
+            }
+        } else {
+            // 如果没有栈，直接执行（向后兼容）
+            for item in &config.linkfiles {
+                tasks.push(Box::new(LinkFileTask::new(item.clone(), self.force_linkfiles)));
+            }
         }
         
-        // 处理 copyfiles（在所有依赖（包括 submodules 和 LFS）同步完成后复制文件）
-        for item in &config.copyfiles {
-            tasks.push(Box::new(CopyFileTask::new(item.clone(), self.force_copyfiles)));
+        // 处理 copyfiles：入栈而不是立即执行
+        if let Some(ref stack) = self.post_sync_stack {
+            for item in &config.copyfiles {
+                let mut stack_guard = stack.lock().unwrap();
+                stack_guard.push(Box::new(CopyFileTask::new(item.clone(), self.force_copyfiles)));
+            }
+        } else {
+            // 如果没有栈，直接执行（向后兼容）
+            for item in &config.copyfiles {
+                tasks.push(Box::new(CopyFileTask::new(item.clone(), self.force_copyfiles)));
+            }
         }
         
         // 处理 actions（在 linkfiles 和 copyfiles 之后执行自定义命令）

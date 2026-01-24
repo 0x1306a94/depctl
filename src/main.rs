@@ -47,6 +47,10 @@ fn main() -> Result<()> {
         let task = CleanTask::new(config_file, env!("CARGO_PKG_VERSION").to_string());
         task.run()?;
     } else {
+        // 创建全局栈，用于存储所有 linkfiles 和 copyfiles 任务
+        // 在所有同步完成后，按入栈顺序执行
+        let post_sync_stack = std::sync::Arc::new(std::sync::Mutex::new(Vec::<Box<dyn tasks::Task>>::new()));
+        
         let task = DepsTask::new(
             config_file,
             env!("CARGO_PKG_VERSION").to_string(),
@@ -55,8 +59,20 @@ fn main() -> Result<()> {
             url_replace_list,
             options.force_linkfiles,
             options.force_copyfiles,
+            Some(post_sync_stack.clone()),
         );
+        
+        // 执行所有同步任务
         task.run()?;
+        
+        // 所有同步完成后，执行栈中的 linkfiles 和 copyfiles（按入栈顺序）
+        let mut stack_guard = post_sync_stack.lock().unwrap();
+        let post_sync_tasks = std::mem::take(&mut *stack_guard);
+        drop(stack_guard); // 释放锁
+        
+        if !post_sync_tasks.is_empty() {
+            tasks::TaskRunner::run_tasks(post_sync_tasks)?;
+        }
     }
     
     Ok(())
