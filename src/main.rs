@@ -12,7 +12,27 @@ fn main() -> Result<()> {
     let options = cli::parse_args()?;
     
     if options.version {
-        println!("depctl version {}", env!("CARGO_PKG_VERSION"));
+        let version = env!("CARGO_PKG_VERSION");
+        let git_hash = env!("GIT_COMMIT_HASH");
+        let git_url = env!("GIT_REMOTE_URL");
+        let build_time = env!("BUILD_TIME");
+        
+        // 只显示 commit hash 的前 7 位（短 hash）
+        let short_hash = if git_hash.len() >= 7 {
+            &git_hash[..7]
+        } else {
+            git_hash
+        };
+        
+        if git_hash != "unknown" && git_url != "unknown" {
+            println!("depctl version {} (commit {}, {}, built {})", version, short_hash, git_url, build_time);
+        } else if git_hash != "unknown" {
+            println!("depctl version {} (commit {}, built {})", version, short_hash, build_time);
+        } else if build_time != "unknown" {
+            println!("depctl version {} (built {})", version, build_time);
+        } else {
+            println!("depctl version {}", version);
+        }
         return Ok(());
     }
     

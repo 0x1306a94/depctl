@@ -29,6 +29,9 @@ walkdir = "2.5.0"
 zip = "7.2.0"
 
 
+[build-dependencies]
+chrono = "0.4"
+
 [profile.release]
 opt-level = 3
 lto = true
