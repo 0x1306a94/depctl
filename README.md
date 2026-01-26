@@ -36,6 +36,12 @@ cargo build --release
 cargo install --path .
 ```
 
+### 使用 Homebrew 安装
+
+```bash
+brew install 0x1306a94/tap/depctl --verbose
+```
+
 ## 使用方法
 
 在包含 DEPS 文件的目录中运行：
