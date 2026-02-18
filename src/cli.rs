@@ -36,6 +36,12 @@ pub struct CommandOptions {
     /// Force recreate copyfiles even if they already exist
     #[arg(long)]
     pub force_copyfiles: bool,
+    
+    /// Skip recursive DEPS processing for these paths (comma-separated).
+    /// Use when a dependency has DEPS in non-depctl format (e.g. Chromium gclient).
+    /// Example: --skip-paths third_party/chromium,vendor/xxx
+    #[arg(long, value_name = "PATHS")]
+    pub skip_paths: Option<String>,
 }
 
 impl CommandOptions {
@@ -45,6 +51,17 @@ impl CommandOptions {
         } else {
             detect_platform()
         }
+    }
+
+    /// 解析 skip_paths 参数为路径列表，空字符串会被过滤掉
+    pub fn skip_paths(&self) -> Vec<String> {
+        self.skip_paths
+            .as_deref()
+            .unwrap_or("")
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
     }
 }
 

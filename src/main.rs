@@ -79,6 +79,7 @@ fn main() -> Result<()> {
             url_replace_list,
             options.force_linkfiles,
             options.force_copyfiles,
+            options.skip_paths(),
             Some(post_sync_stack.clone()),
         );
         

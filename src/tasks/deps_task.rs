@@ -1,8 +1,19 @@
 use anyhow::Result;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use crate::config::{self, UrlReplace};
 use crate::tasks::{RepoTask, FileTask, SubRepoTask, ActionTask, LinkFileTask, CopyFileTask, TaskRunner, Task};
 use crate::utils;
+
+/// 检查路径是否匹配 skip_paths 列表中的任一配置
+fn path_matches_skip_list(path: &Path, skip_paths: &[String]) -> bool {
+    for skip in skip_paths {
+        let skip_path = Path::new(skip.trim());
+        if path.ends_with(skip_path) {
+            return true;
+        }
+    }
+    false
+}
 
 // 递归处理子仓库 DEPS 文件的任务
 // 在执行时检查 DEPS 文件是否存在，这样可以处理仓库被克隆后才出现 DEPS 文件的情况
@@ -11,6 +22,7 @@ struct RecursiveDepsTask {
     version: String,
     platform: String,
     non_recursive: bool,
+    skip_paths: Vec<String>,
     url_replace_list: Option<Vec<UrlReplace>>,
     force_linkfiles: bool,
     force_copyfiles: bool,
@@ -24,6 +36,7 @@ impl RecursiveDepsTask {
         version: String,
         platform: String,
         non_recursive: bool,
+        skip_paths: Vec<String>,
         url_replace_list: Option<Vec<UrlReplace>>,
         force_linkfiles: bool,
         force_copyfiles: bool,
@@ -34,6 +47,7 @@ impl RecursiveDepsTask {
             version,
             platform,
             non_recursive,
+            skip_paths,
             url_replace_list,
             force_linkfiles,
             force_copyfiles,
@@ -46,22 +60,23 @@ impl Task for RecursiveDepsTask {
     fn run(&self) -> Result<bool> {
         // 在执行时检查 DEPS 文件是否存在
         // 这样可以处理仓库被克隆后才出现 DEPS 文件的情况
-        if self.deps_file.exists() {
-            let task = DepsTask::new(
-                self.deps_file.clone(),
-                self.version.clone(),
-                self.platform.clone(),
-                self.non_recursive,
-                self.url_replace_list.clone(),
-                self.force_linkfiles,
-                self.force_copyfiles,
-                self.post_sync_stack.clone(),
-            );
-            task.run()?;
-            Ok(true)
-        } else {
-            Ok(false) // DEPS 文件不存在，跳过
+        if !self.deps_file.exists() {
+            return Ok(false); // DEPS 文件不存在，跳过
         }
+
+        let task = DepsTask::new(
+            self.deps_file.clone(),
+            self.version.clone(),
+            self.platform.clone(),
+            self.non_recursive,
+            self.url_replace_list.clone(),
+            self.force_linkfiles,
+            self.force_copyfiles,
+            self.skip_paths.clone(),
+            self.post_sync_stack.clone(),
+        );
+        task.run()?;
+        Ok(true)
     }
 }
 
@@ -73,6 +88,7 @@ pub struct DepsTask {
     url_replace_list: Option<Vec<UrlReplace>>,
     force_linkfiles: bool,
     force_copyfiles: bool,
+    skip_paths: Vec<String>,
     post_sync_stack: Option<std::sync::Arc<std::sync::Mutex<Vec<Box<dyn Task>>>>>,
 }
 
@@ -85,6 +101,7 @@ impl DepsTask {
         url_replace_list: Option<Vec<UrlReplace>>,
         force_linkfiles: bool,
         force_copyfiles: bool,
+        skip_paths: Vec<String>,
         post_sync_stack: Option<std::sync::Arc<std::sync::Mutex<Vec<Box<dyn Task>>>>>,
     ) -> Self {
         Self {
@@ -95,6 +112,7 @@ impl DepsTask {
             url_replace_list,
             force_linkfiles,
             force_copyfiles,
+            skip_paths,
             post_sync_stack,
         }
     }
@@ -144,12 +162,13 @@ impl Task for DepsTask {
             // 递归处理子仓库的 DEPS 文件（无论仓库是否需要更新，都应该检查）
             // 注意：这里不检查文件是否存在，因为仓库可能还没有被克隆
             // 我们会在执行时检查，或者在 RepoTask 执行后再检查
-            if !self.non_recursive {
+            if !self.non_recursive && !path_matches_skip_list(&item.dir, &self.skip_paths) {
                 let deps_file = item.dir.join("DEPS");
                 let item_dir = item.dir.clone();
                 let version = self.version.clone();
                 let platform = self.platform.clone();
                 let non_recursive = self.non_recursive;
+                let skip_paths = self.skip_paths.clone();
                 let url_replace_list = self.url_replace_list.clone();
                 let force_linkfiles = self.force_linkfiles;
                 let force_copyfiles = self.force_copyfiles;
@@ -162,6 +181,7 @@ impl Task for DepsTask {
                     version,
                     platform,
                     non_recursive,
+                    skip_paths,
                     url_replace_list,
                     force_linkfiles,
                     force_copyfiles,
