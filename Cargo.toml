@@ -1,6 +1,6 @@
 [package]
 name = "depctl"
-version = "1.4.6"
+version = "1.4.7"
 edition = "2021"
 authors = ["0x1306a94"]
 description = "A Rust implementation of dependency management tool similar to depsync"

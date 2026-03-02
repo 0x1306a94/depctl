@@ -171,7 +171,9 @@ pub fn parse(
         );
     }
     
-    let vars = deps_config.vars.as_ref().cloned().unwrap_or_default();
+    let raw_vars = deps_config.vars.as_ref().cloned().unwrap_or_default();
+    // 解析 vars
+    let vars = resolve_vars(raw_vars)?;
     
     // 过滤平台特定的配置
     let repos = filter_by_platform(&deps_config.repos, platform);
@@ -344,35 +346,124 @@ fn parse_copyfiles(
     Ok(result)
 }
 
-fn format_string(text: &str, vars: &HashMap<String, String>) -> String {
+/// 解析 vars 变量：支持变量间引用（A 依赖 B）和系统环境变量
+/// - 变量值中的 ${VAR} 会先查找 vars 中的 VAR，再查找环境变量
+/// - 迭代求值直到稳定，检测循环引用
+pub(crate) fn resolve_vars(raw: HashMap<String, String>) -> Result<HashMap<String, String>> {
+    let mut resolved = HashMap::new();
+    const MAX_ITERATIONS: usize = 100;
+
+    for _ in 0..MAX_ITERATIONS {
+        let mut changed = false;
+        for (k, v) in &raw {
+            let value: &str = resolved.get(k).map(String::as_str).unwrap_or(v.as_str());
+            let new_value = substitute_vars_with_env(value, &resolved);
+            if new_value != value || !resolved.contains_key(k) {
+                resolved.insert(k.clone(), new_value);
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+
+    // 检查循环引用：若某 var 的值仍包含对同批次 vars 的引用，则可能为循环
+    for (k, v) in &resolved {
+        if !v.contains("${") {
+            continue;
+        }
+        // 提取 ${X} 中的 X，若 X 在 vars 中且其值也含 ${，则可能是循环
+        let mut i = 0;
+        let chars: Vec<char> = v.chars().collect();
+        while i < chars.len().saturating_sub(2) {
+            if chars[i] == '$' && chars[i + 1] == '{' {
+                i += 2;
+                let start = i;
+                while i < chars.len() && chars[i] != '}' {
+                    i += 1;
+                }
+                if i < chars.len() {
+                    let ref_key: String = chars[start..i].iter().collect();
+                    if raw.contains_key(&ref_key) {
+                        anyhow::bail!(
+                            "Circular var reference: '{}' -> '{}'",
+                            k,
+                            ref_key
+                        );
+                    }
+                }
+            }
+            i += 1;
+        }
+    }
+
+    Ok(resolved)
+}
+
+/// 仅用于 resolve_vars 阶段：替换 ${VAR}，支持 vars + 环境变量
+fn substitute_vars_with_env(text: &str, vars: &HashMap<String, String>) -> String {
     let mut result = String::new();
     let mut i = 0;
     let chars: Vec<char> = text.chars().collect();
-    
     while i < chars.len() {
         if i < chars.len() - 1 && chars[i] == '$' && chars[i + 1] == '{' {
-            // 找到变量开始
-            i += 2; // 跳过 ${
+            i += 2;
             let start = i;
             while i < chars.len() && chars[i] != '}' {
                 i += 1;
             }
             if i < chars.len() {
                 let key: String = chars[start..i].iter().collect();
-                let default_value = format!("${{{}}}", key);
-                let value = vars.get(&key)
-                    .map(|v| v.as_str())
-                    .unwrap_or(&default_value);
-                result.push_str(value);
-                i += 1; // 跳过 }
+                let value: String = if let Some(v) = vars.get(&key) {
+                    v.clone()
+                } else if let Ok(ev) = std::env::var(&key) {
+                    ev
+                } else {
+                    format!("${{{}}}", key)
+                };
+                result.push_str(&value);
+                i += 1;
             }
         } else {
             result.push(chars[i]);
             i += 1;
         }
     }
-    
     result
+}
+
+/// 仅从 vars 查找并替换 ${VAR}（用于 repos、files 等，vars 已完整求值）
+pub(crate) fn substitute_vars(text: &str, vars: &HashMap<String, String>) -> String {
+    let mut result = String::new();
+    let mut i = 0;
+    let chars: Vec<char> = text.chars().collect();
+    while i < chars.len() {
+        if i < chars.len() - 1 && chars[i] == '$' && chars[i + 1] == '{' {
+            i += 2;
+            let start = i;
+            while i < chars.len() && chars[i] != '}' {
+                i += 1;
+            }
+            if i < chars.len() {
+                let key: String = chars[start..i].iter().collect();
+                let value: String = vars
+                    .get(&key)
+                    .cloned()
+                    .unwrap_or_else(|| format!("${{{}}}", key));
+                result.push_str(&value);
+                i += 1;
+            }
+        } else {
+            result.push(chars[i]);
+            i += 1;
+        }
+    }
+    result
+}
+
+fn format_string(text: &str, vars: &HashMap<String, String>) -> String {
+    substitute_vars(text, vars)
 }
 
 fn apply_url_replace(url: &str, url_replace_list: Option<&Vec<UrlReplace>>) -> String {
@@ -405,4 +496,121 @@ pub fn parse_mirror(mirror_str: &str) -> Result<Vec<UrlReplace>> {
     }
     
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::io::Write;
+
+    #[test]
+    fn test_resolve_vars_var_to_var() {
+        let mut raw = HashMap::new();
+        raw.insert("GIT_DOMAIN".to_string(), "github.com".to_string());
+        raw.insert(
+            "GITHUB_DOMAIN".to_string(),
+            "https://${GIT_DOMAIN}".to_string(),
+        );
+        let resolved = resolve_vars(raw).unwrap();
+        assert_eq!(resolved.get("GIT_DOMAIN").unwrap(), "github.com");
+        assert_eq!(
+            resolved.get("GITHUB_DOMAIN").unwrap(),
+            "https://github.com"
+        );
+    }
+
+    #[test]
+    fn test_resolve_vars_chained() {
+        let mut raw = HashMap::new();
+        raw.insert("A".to_string(), "1".to_string());
+        raw.insert("B".to_string(), "${A}".to_string());
+        raw.insert("C".to_string(), "prefix-${B}-suffix".to_string());
+        let resolved = resolve_vars(raw).unwrap();
+        assert_eq!(resolved.get("A").unwrap(), "1");
+        assert_eq!(resolved.get("B").unwrap(), "1");
+        assert_eq!(resolved.get("C").unwrap(), "prefix-1-suffix");
+    }
+
+    #[test]
+    fn test_resolve_vars_circular() {
+        let mut raw = HashMap::new();
+        raw.insert("A".to_string(), "${B}".to_string());
+        raw.insert("B".to_string(), "${A}".to_string());
+        let err = resolve_vars(raw).unwrap_err();
+        assert!(err.to_string().contains("Circular"));
+    }
+
+    #[test]
+    fn test_substitute_vars_from_map() {
+        let mut vars = HashMap::new();
+        vars.insert("X".to_string(), "foo".to_string());
+        assert_eq!(substitute_vars("${X}-bar", &vars), "foo-bar");
+    }
+
+    #[test]
+    fn test_substitute_vars_unresolved_kept() {
+        let vars = HashMap::new();
+        assert_eq!(
+            substitute_vars("${NOT_EXIST}", &vars),
+            "${NOT_EXIST}"
+        );
+    }
+
+    #[test]
+    fn test_substitute_vars_no_env_fallback() {
+        // 后续流程仅从 vars 取值，不查环境变量
+        std::env::set_var("DEPCTL_TEST_ONLY_ENV", "from_env");
+        let vars = HashMap::new();
+        assert_eq!(
+            substitute_vars("${DEPCTL_TEST_ONLY_ENV}", &vars),
+            "${DEPCTL_TEST_ONLY_ENV}"
+        );
+        std::env::remove_var("DEPCTL_TEST_ONLY_ENV");
+    }
+
+    #[test]
+    fn test_resolve_vars_env_var() {
+        std::env::set_var("DEPCTL_TEST_ENV_VAR", "env_value");
+        let mut raw = HashMap::new();
+        raw.insert("PREFIX".to_string(), "${DEPCTL_TEST_ENV_VAR}".to_string());
+        let resolved = resolve_vars(raw).unwrap();
+        assert_eq!(resolved.get("PREFIX").unwrap(), "env_value");
+        std::env::remove_var("DEPCTL_TEST_ENV_VAR");
+    }
+
+    #[test]
+    fn test_parse_deps_with_var_deps() {
+        std::env::set_var("DEPCTL_TEST_ENV_GIT_SCHEME_VAR", "https");
+        let dir = std::env::temp_dir().join("depctl_test_vars");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let deps_file = dir.join("DEPS");
+        let content = r#"{
+            "version": "1.0.0",
+            "vars": {
+                "GIT_DOMAIN": "github.com",
+                "GITHUB_DOMAIN": "${DEPCTL_TEST_ENV_GIT_SCHEME_VAR}://${GIT_DOMAIN}"
+            },
+            "repos": {"common": [{"url": "${GITHUB_DOMAIN}/a/b.git", "commit": "abc", "dir": "vendor"}]}
+        }"#;
+        fs::File::create(&deps_file)
+            .unwrap()
+            .write_all(content.as_bytes())
+            .unwrap();
+
+        let parsed = parse(
+            &deps_file,
+            "2.0.0",
+            "mac",
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(parsed.repos.len(), 1);
+        assert_eq!(parsed.repos[0].url, "https://github.com/a/b.git");
+
+        let _ = fs::remove_dir_all(&dir);
+        std::env::remove_var("DEPCTL_TEST_ENV_GIT_SCHEME_VAR");
+    }
 }

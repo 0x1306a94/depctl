@@ -1,7 +1,8 @@
 {
   "version": "1.3.2",
   "vars": {
-    "GITHUB_DOMAIN": "https://github.com"
+    "GIT_DOMAIN": "github.com",
+    "GITHUB_DOMAIN": "https://${GIT_DOMAIN}"
   },
   "repos": {
     "common": [
