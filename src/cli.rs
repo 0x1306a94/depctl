@@ -42,6 +42,10 @@ pub struct CommandOptions {
     /// Example: --skip-paths third_party/chromium,vendor/xxx
     #[arg(long, value_name = "PATHS")]
     pub skip_paths: Option<String>,
+    
+    /// Use DEPS.{SUFFIX} instead of DEPS. E.g. --env local uses DEPS.local, --env dev uses DEPS.dev
+    #[arg(long, value_name = "SUFFIX")]
+    pub env: Option<String>,
 }
 
 impl CommandOptions {

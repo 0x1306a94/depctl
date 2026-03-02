@@ -39,17 +39,32 @@ fn main() -> Result<()> {
     // clap 会自动处理 --help 参数，所以这里不需要检查
     
     let config_file = if let Some(project) = &options.project {
-        let deps_file = project.join("DEPS");
+        let filename = options
+            .env
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .map(|s| format!("DEPS.{}", s))
+            .unwrap_or_else(|| "DEPS".to_string());
+        let deps_file = project.join(&filename);
         if !deps_file.exists() {
-            eprintln!("Cannot find DEPS file at the specified directory: {}", project.display());
+            eprintln!("Cannot find {} at the specified directory: {}", filename, project.display());
             std::process::exit(1);
         }
         deps_file
     } else {
-        match config::find_config_file(std::env::current_dir()?) {
+        let cwd = std::env::current_dir()?;
+        let result = options
+            .env
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .map_or_else(
+                || config::find_config_file(cwd.clone()),
+                |s| config::find_config_file_with_suffix(cwd.clone(), Some(s)),
+            );
+        match result {
             Ok(file) => file,
-            Err(_) => {
-                eprintln!("Cannot find DEPS file. Please run depctl in a directory with a DEPS file.");
+            Err(e) => {
+                eprintln!("{}", e);
                 eprintln!("\nUse 'depctl --help' for more information.");
                 std::process::exit(1);
             }

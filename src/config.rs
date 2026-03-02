@@ -123,13 +123,24 @@ pub struct UrlReplace {
 }
 
 pub fn find_config_file(search_path: PathBuf) -> Result<PathBuf> {
+    find_config_file_with_suffix(search_path, None)
+}
+
+/// suffix: None -> DEPS, Some("local") -> DEPS.local
+pub fn find_config_file_with_suffix(
+    search_path: PathBuf,
+    suffix: Option<&str>,
+) -> Result<PathBuf> {
+    let filename = match suffix {
+        Some(s) if !s.is_empty() => format!("DEPS.{}", s),
+        _ => "DEPS".to_string(),
+    };
     let mut current = search_path;
     loop {
-        let deps_file = current.join("DEPS");
+        let deps_file = current.join(&filename);
         if deps_file.exists() {
             return Ok(deps_file);
         }
-        
         if let Some(parent) = current.parent() {
             if parent == current {
                 break;
@@ -139,8 +150,7 @@ pub fn find_config_file(search_path: PathBuf) -> Result<PathBuf> {
             break;
         }
     }
-    
-    anyhow::bail!("DEPS file not found")
+    anyhow::bail!("{} not found", filename)
 }
 
 pub fn parse(
