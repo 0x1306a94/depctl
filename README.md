@@ -30,6 +30,44 @@ cargo build --release
 
 编译后的二进制文件位于 `target/release/depctl`。
 
+#### 在 macOS（Apple Silicon）上交叉编译 Linux x86_64（musl）
+
+发布流程使用目标 `x86_64-unknown-linux-musl`，可避免对目标机 glibc 版本的强依赖。在 M 系列 Mac 上若直接执行 `cargo build --target x86_64-unknown-linux-musl`，部分带 C 代码的依赖会通过 `cc-rs` 查找 **`x86_64-linux-musl-gcc`**，而 macOS 默认不提供该交叉编译器，可能报错 `failed to find tool "x86_64-linux-musl-gcc"`。可选用以下任一方式。
+
+**1. Docker + `cross`（环境最接近 Linux CI）**
+
+需要本机安装并运行 Docker。
+
+```bash
+rustup target add x86_64-unknown-linux-musl
+cargo install cross --locked
+cross build --release --target x86_64-unknown-linux-musl
+```
+
+**2. `cargo-zigbuild`（无需 Docker）**
+
+使用 Zig 作为链接器，在 Mac 上交叉到 Linux musl 较省事。
+
+```bash
+rustup target add x86_64-unknown-linux-musl
+brew install zig
+cargo install cargo-zigbuild --locked
+cargo zigbuild --release --target x86_64-unknown-linux-musl
+```
+
+**3. Homebrew 安装 musl 交叉 GCC 并配置环境变量**
+
+从 [messense/macos-cross-toolchains](https://github.com/messense/homebrew-macos-cross-toolchains) 安装与 `x86_64-unknown-linux-musl` 对应的工具链（具体 formula 名称以该仓库说明或 `brew search` 为准），确保 `PATH` 中能执行 `x86_64-linux-musl-gcc`，然后例如：
+
+```bash
+export CC_x86_64_unknown_linux_musl=x86_64-linux-musl-gcc
+export CXX_x86_64_unknown_linux_musl=x86_64-linux-musl-g++
+export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=x86_64-linux-musl-gcc
+cargo build --release --target x86_64-unknown-linux-musl
+```
+
+若实际安装后的编译器名称不同，将上述三个变量改为 `which` 得到的可执行文件名即可。
+
 ### 使用 Cargo 安装
 
 ```bash

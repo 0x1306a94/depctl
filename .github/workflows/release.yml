@@ -25,7 +25,7 @@ jobs:
             build_universal: true
           # Linux x86_64
           - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
+            target: x86_64-unknown-linux-musl
             artifact_name: depctl-linux-x86_64
             binary_name: depctl
             build_universal: false
