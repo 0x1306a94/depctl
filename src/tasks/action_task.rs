@@ -1,7 +1,7 @@
-use anyhow::Result;
 use crate::config::ParsedActionItem;
 use crate::tasks::Task;
 use crate::utils;
+use anyhow::Result;
 
 pub struct ActionTask {
     item: ParsedActionItem,
@@ -23,7 +23,7 @@ impl Task for ActionTask {
                 Ok(path) => path.to_string_lossy().to_string(),
                 Err(_) => "depctl".to_string(),
             };
-            
+
             // 替换命令中的所有 depsync 为 depctl 的绝对路径
             // 例如: "depsync --clean" -> "/usr/local/bin/depctl --clean"
             //       "depsync mac" -> "/usr/local/bin/depctl mac"
@@ -31,7 +31,7 @@ impl Task for ActionTask {
         } else {
             self.item.command.clone()
         };
-        
+
         utils::exec(&command, &self.item.dir, false)?;
         Ok(true) // 命令执行通常有输出
     }

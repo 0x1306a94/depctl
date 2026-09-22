@@ -1,8 +1,8 @@
+use crate::utils;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use crate::utils;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DepsConfig {
@@ -44,7 +44,7 @@ where
         Bool(bool),
         String(String),
     }
-    
+
     match Unzip::deserialize(deserializer)? {
         Unzip::Bool(b) => Ok(b),
         Unzip::String(s) => Ok(s == "true"),
@@ -127,10 +127,7 @@ pub fn find_config_file(search_path: PathBuf) -> Result<PathBuf> {
 }
 
 /// suffix: None -> DEPS, Some("local") -> DEPS.local
-pub fn find_config_file_with_suffix(
-    search_path: PathBuf,
-    suffix: Option<&str>,
-) -> Result<PathBuf> {
+pub fn find_config_file_with_suffix(search_path: PathBuf, suffix: Option<&str>) -> Result<PathBuf> {
     let filename = match suffix {
         Some(s) if !s.is_empty() => format!("DEPS.{}", s),
         _ => "DEPS".to_string(),
@@ -162,14 +159,14 @@ pub fn parse(
     if !config_file.exists() {
         anyhow::bail!("Config file does not exist: {}", config_file.display());
     }
-    
+
     let content = utils::read_file(config_file)?;
     let deps_config: DepsConfig = serde_json::from_str(&content)
         .with_context(|| format!("Failed to parse DEPS file: {}", config_file.display()))?;
-    
+
     let project_path = config_file.parent().unwrap();
     let config_version = deps_config.version.as_deref().unwrap_or("0.0.0");
-    
+
     // 检查版本要求
     if utils::compare_version(tool_version, config_version) < 0 {
         anyhow::bail!(
@@ -180,33 +177,33 @@ pub fn parse(
             tool_version
         );
     }
-    
+
     let raw_vars = deps_config.vars.as_ref().cloned().unwrap_or_default();
     // 解析 vars
     let vars = resolve_vars(raw_vars)?;
-    
+
     // 过滤平台特定的配置
     let repos = filter_by_platform(&deps_config.repos, platform);
     let files = filter_by_platform(&deps_config.files, platform);
     let actions = filter_by_platform(&deps_config.actions, platform);
     let linkfiles = filter_by_platform(&deps_config.linkfiles, platform);
     let copyfiles = filter_by_platform(&deps_config.copyfiles, platform);
-    
+
     // 解析 repos
     let parsed_repos = parse_repos(&repos, &vars, project_path, url_replace_list)?;
-    
+
     // 解析 files
     let parsed_files = parse_files(&files, &vars, project_path, url_replace_list)?;
-    
+
     // 解析 actions
     let parsed_actions = parse_actions(&actions, &vars, project_path)?;
-    
+
     // 解析 linkfiles
     let parsed_linkfiles = parse_linkfiles(&linkfiles, &vars, project_path)?;
-    
+
     // 解析 copyfiles
     let parsed_copyfiles = parse_copyfiles(&copyfiles, &vars, project_path)?;
-    
+
     Ok(ParsedConfig {
         version: config_version.to_string(),
         repos: parsed_repos,
@@ -217,7 +214,10 @@ pub fn parse(
     })
 }
 
-fn filter_by_platform<'a, T>(items: &'a Option<HashMap<String, Vec<T>>>, platform: &str) -> Vec<&'a T> {
+fn filter_by_platform<'a, T>(
+    items: &'a Option<HashMap<String, Vec<T>>>,
+    platform: &str,
+) -> Vec<&'a T> {
     let mut result = Vec::new();
     if let Some(ref items_map) = items {
         for (key, values) in items_map {
@@ -242,7 +242,7 @@ fn parse_repos(
         let commit = format_string(&item.commit, vars);
         let dir_str = format_string(&item.dir, vars);
         let dir = project_path.join(dir_str);
-        
+
         result.push(ParsedRepoItem {
             url,
             commit,
@@ -266,7 +266,7 @@ fn parse_files(
         let dir = project_path.join(dir_str);
         let dir_canonicalized = dir.canonicalize().unwrap_or(dir.clone());
         let hash = utils::get_hash(&url);
-        
+
         let url_without_query: String = url.split('?').next().unwrap_or(&url).to_string();
         let path_buf = PathBuf::from(&url_without_query);
         let file_name = path_buf
@@ -275,13 +275,14 @@ fn parse_files(
             .unwrap_or("unknown");
         // hash_file 应该基于 canonicalized 的 dir，确保路径一致
         let hash_file = dir_canonicalized.join(format!(".{}.sha1", file_name));
-        
+
         let unzip = item.unzip;
-        
-        let multipart = item.multipart.as_ref().map(|parts| {
-            parts.iter().map(|p| format_string(p, vars)).collect()
-        });
-        
+
+        let multipart = item
+            .multipart
+            .as_ref()
+            .map(|parts| parts.iter().map(|p| format_string(p, vars)).collect());
+
         result.push(ParsedFileItem {
             url,
             dir: dir_canonicalized,
@@ -305,7 +306,7 @@ fn parse_actions(
         let command = format_string(&item.command, vars);
         let dir_str = format_string(&item.dir, vars);
         let dir = project_path.join(dir_str);
-        
+
         result.push(ParsedActionItem {
             command,
             dir: dir.canonicalize().unwrap_or(dir),
@@ -325,7 +326,7 @@ fn parse_linkfiles(
         let dest_str = format_string(&item.dest, vars);
         let src = project_path.join(src_str);
         let dest = project_path.join(dest_str);
-        
+
         // 对于 linkfiles，源路径不应该 canonicalize，保持原始路径
         // 目标路径需要确保父目录存在，但目标本身是软链接，不需要 canonicalize
         result.push(ParsedLinkFileItem {
@@ -347,7 +348,7 @@ fn parse_copyfiles(
         let dest_str = format_string(&item.dest, vars);
         let src = project_path.join(src_str);
         let dest = project_path.join(dest_str);
-        
+
         result.push(ParsedCopyFileItem {
             src: src.canonicalize().unwrap_or(src),
             dest: dest.canonicalize().unwrap_or(dest),
@@ -396,11 +397,7 @@ pub(crate) fn resolve_vars(raw: HashMap<String, String>) -> Result<HashMap<Strin
                 if i < chars.len() {
                     let ref_key: String = chars[start..i].iter().collect();
                     if raw.contains_key(&ref_key) {
-                        anyhow::bail!(
-                            "Circular var reference: '{}' -> '{}'",
-                            k,
-                            ref_key
-                        );
+                        anyhow::bail!("Circular var reference: '{}' -> '{}'", k, ref_key);
                     }
                 }
             }
@@ -490,7 +487,7 @@ fn apply_url_replace(url: &str, url_replace_list: Option<&Vec<UrlReplace>>) -> S
 pub fn parse_mirror(mirror_str: &str) -> Result<Vec<UrlReplace>> {
     let mut result = Vec::new();
     let pairs: Vec<&str> = mirror_str.split(',').collect();
-    
+
     for pair in pairs {
         let parts: Vec<&str> = pair.split("->").collect();
         if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
@@ -504,7 +501,7 @@ pub fn parse_mirror(mirror_str: &str) -> Result<Vec<UrlReplace>> {
             new_prefix: parts[1].to_string(),
         });
     }
-    
+
     Ok(result)
 }
 
@@ -524,10 +521,7 @@ mod tests {
         );
         let resolved = resolve_vars(raw).unwrap();
         assert_eq!(resolved.get("GIT_DOMAIN").unwrap(), "github.com");
-        assert_eq!(
-            resolved.get("GITHUB_DOMAIN").unwrap(),
-            "https://github.com"
-        );
+        assert_eq!(resolved.get("GITHUB_DOMAIN").unwrap(), "https://github.com");
     }
 
     #[test]
@@ -561,10 +555,7 @@ mod tests {
     #[test]
     fn test_substitute_vars_unresolved_kept() {
         let vars = HashMap::new();
-        assert_eq!(
-            substitute_vars("${NOT_EXIST}", &vars),
-            "${NOT_EXIST}"
-        );
+        assert_eq!(substitute_vars("${NOT_EXIST}", &vars), "${NOT_EXIST}");
     }
 
     #[test]
@@ -609,13 +600,7 @@ mod tests {
             .write_all(content.as_bytes())
             .unwrap();
 
-        let parsed = parse(
-            &deps_file,
-            "2.0.0",
-            "mac",
-            None,
-        )
-        .unwrap();
+        let parsed = parse(&deps_file, "2.0.0", "mac", None).unwrap();
 
         assert_eq!(parsed.repos.len(), 1);
         assert_eq!(parsed.repos[0].url, "https://github.com/a/b.git");

@@ -8,41 +8,41 @@ pub struct CommandOptions {
     /// Platform to synchronize (mac, win, linux, or custom)
     #[arg(value_name = "PLATFORM")]
     pub platform: Option<String>,
-    
+
     /// Print version
     #[arg(short, long)]
     pub version: bool,
-    
+
     /// Synchronize the project in the given directory
     #[arg(short, long, value_name = "DIRECTORY")]
     pub project: Option<PathBuf>,
-    
+
     /// Clean repos and files that do not exist in the DEPS file
     #[arg(short, long)]
     pub clean: bool,
-    
+
     /// Skip synchronizing sub-projects
     #[arg(long)]
     pub non_recursive: bool,
-    
+
     /// Mirror repository URLs. Format: 'old1->new1,old2->new2'
     #[arg(long, value_name = "MAPPINGS")]
     pub mirror: Option<String>,
-    
+
     /// Force recreate linkfiles even if they already exist
     #[arg(long)]
     pub force_linkfiles: bool,
-    
+
     /// Force recreate copyfiles even if they already exist
     #[arg(long)]
     pub force_copyfiles: bool,
-    
+
     /// Skip recursive DEPS processing for these paths (comma-separated).
     /// Use when a dependency has DEPS in non-depctl format (e.g. Chromium gclient).
     /// Example: --skip-paths third_party/chromium,vendor/xxx
     #[arg(long, value_name = "PATHS")]
     pub skip_paths: Option<String>,
-    
+
     /// Use DEPS.{SUFFIX} instead of DEPS. E.g. --env local uses DEPS.local, --env dev uses DEPS.dev
     #[arg(long, value_name = "SUFFIX")]
     pub env: Option<String>,
@@ -71,12 +71,12 @@ impl CommandOptions {
 
 pub fn parse_args() -> anyhow::Result<CommandOptions> {
     let options = CommandOptions::parse();
-    
+
     // 如果没有指定平台，自动检测
     if options.platform.is_none() {
         // platform 字段会在 platform() 方法中处理
     }
-    
+
     Ok(options)
 }
 
